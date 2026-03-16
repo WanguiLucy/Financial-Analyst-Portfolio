@@ -42,4 +42,4 @@ To run these scripts, download the datasets above and import them into PostgreSQ
 
 ---
 
-*Author: Lucy Wangui | BSc Statistics, University of Nairobi | 2025*
+*Author: Lucy Wangui | BSc Statistics, Maseno University| 2026*
