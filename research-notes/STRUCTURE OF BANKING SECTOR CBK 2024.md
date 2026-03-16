@@ -2,7 +2,7 @@
 ## Structure of the Banking Sector
 
 **Source:** Central Bank of Kenya, Bank Supervision Annual Report 2024  
-**Reader:** Lucy Wangui | Date: March 2025  
+**Reader:** Lucy Wangui | Date: 16 March 2026  
 **Chapter:** 1 — Structure of the Banking Sector
 
 ---
