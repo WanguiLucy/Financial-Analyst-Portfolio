@@ -10,7 +10,7 @@ select
 		WHEN asset_market_share_pct >= 7 THEN 'Strong'
 		WHEN asset_market_share_pct >=4 THEN 'Moderate'
 		ELSE 'Minor'
-	END AS market_share,
+	END AS performance_tier,
 	COUNT(1) AS Number_of_banks
 from
 	cbk_market_share cms
