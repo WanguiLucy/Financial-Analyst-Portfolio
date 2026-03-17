@@ -11,6 +11,8 @@ Exploratory SQL queries on Kenya's banking sector using real data from the Centr
 - GROUP BY and aggregate functions (COUNT, SUM, AVG, MAX)
 - HAVING clause for filtered aggregations
 - Subqueries
+- CASE WHEN for classification and conditional aggregation
+- DISTINCT
 
 ---
 
@@ -19,6 +21,7 @@ Exploratory SQL queries on Kenya's banking sector using real data from the Centr
 | File | Description |
 |---|---|
 | `cbk_banking_basics.sql` | Exploratory queries on CBK market share data — peer group analysis, asset distribution, deposit accounts |
+| `cbk_banking_aggregates_and_case_when.sql` | CASE WHEN classification, conditional aggregation, HAVING, subqueries |
 
 ---
 
