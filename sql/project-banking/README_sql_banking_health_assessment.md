@@ -55,11 +55,18 @@ A full SQL-based health assessment of Kenya's banking sector covering 39 banks a
 - DIB Bank Kenya most extreme — NPL surged 150% on just 5% loan growth
 - UBA Kenya best performer — loans -56%, NPLs -86% (active portfolio cleanup)
 
+**Loan Growth Trend Analysis (YoY)**
+- 18 banks grew their loan books YoY; of these, several flagged as Risky Growth where NPL grew faster than loans
+- DIB Bank Kenya most extreme — NPL surged 150% on just 5% loan growth
+- Banks flagged as Distressed Contraction (loans shrank AND NPL grew) warrant immediate supervisory attention
+- Classification: Healthy Growth | Risky Growth | Healthy Deleveraging | Distressed Contraction | Watch
+- Note: Healthy Deleveraging vs forced contraction cannot be distinguished from data alone — requires qualitative investigation
+
 ---
 
 ## Data Limitations
 
-- **Name inconsistencies across tables** — 5 banks have formatting mismatches between `cbk_market_share` and other tables (e.g. `KCB Bank Kenya Limited` vs `KCB Bank Kenya Ltd`). This causes NULL results in cross-table joins, particularly in Section 4 tiering. Identified and documented in Section 7.
+- **Name inconsistencies across tables** — 5 banks have formatting mismatches between `cbk_market_share` and other tables (e.g. `KCB Bank Kenya Limited` vs `KCB Bank Kenya Ltd`). This causes NULL results in cross-table joins, particularly in Section 4 tiering. Identified and documented in Section 8.
 - **Coverage gaps** — `cbk_capital_adequacy` covers 29 banks; not all 39 banks in profitability have capital data
 - All findings are directionally correct; exact figures on joined queries may shift with standardised bank names
 
@@ -75,4 +82,5 @@ A full SQL-based health assessment of Kenya's banking sector covering 39 banks a
 | Section 4 | Multi-metric bank tiering framework |
 | Section 5 | Capital adequacy and CBK regulatory threshold analysis |
 | Section 6 | Loan book dynamics and double risk flagging |
-| Section 7 | Data quality — name mismatch diagnosis |
+| Section 7 | YoY loan growth trend analysis and lending quality classification |
+| Section 8 | Data quality — name mismatch diagnosis |
