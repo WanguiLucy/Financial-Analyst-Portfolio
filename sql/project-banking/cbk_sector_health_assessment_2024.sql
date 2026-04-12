@@ -437,6 +437,7 @@ where
 	core_capital_to_rwa_pct < 10.5
 	or total_capital_to_rwa_pct < 14.5
 	or core_capital_to_deposits_pct < 8  ;
+--shows 6 banks that violated/breached the minimum requirement 
 -- Breaching core_capital_to_deposits is the most serious — it signals inability to cover depositor obligations
 
 --iii.Classify each bank as:
@@ -602,17 +603,98 @@ order by
 -- UBA Kenya best performer — loans -56%, NPLs -86% (active cleanup)
 
 
---Section 7: Data Quality
--- Banks in market_share not matched in profitability
-select bank_name, 'Missing from profitability' AS issue
-from cbk_market_share
+--Section 7:Trend Analysis -loan growth yoy
+with data as (
+select
+	bank_name,
+	cnl.gross_loans_dec23_ksh_m gross_loans_2023,
+	cnl.gross_loans_dec24_ksh_m gross_loans_2024,
+	cnl.gross_npl_dec23_ksh_m as gross_npl_2023,
+	cnl.gross_npl_dec24_ksh_m as gross_npl_2024
+from
+	cbk_npl_loans cnl),
+yoy_gross_loans as (
+select
+	bank_name,
+	gross_loans_2024,
+		gross_loans_2023,
+	gross_loans_2024 - gross_loans_2023 as gross_loans_diff,
+	concat(round((gross_loans_2024 - gross_loans_2023) * 100 / gross_loans_2023, 2), '%') as growth_gross_loans_rate,
+	case
+		when gross_loans_2023 > gross_loans_2024 then 'gross loan reduced'
+		when gross_loans_2023 < gross_loans_2024 then 'gross loan grew'
+		else 'stable'
+	end as gross_loan_status
+from
+	data
+),
+yoy_npl_loans as (
+select
+	bank_name,
+	gross_npl_2024,
+	gross_npl_2023,
+	gross_npl_2024 - gross_npl_2023 as gross_npl_diff,
+	concat(round((gross_npl_2024 - gross_npl_2023) * 100 / gross_npl_2023 , 2), '%') as growth_gross_npl_rate,
+	case
+		when gross_npl_2023 > gross_npl_2024 then 'gross npl reduced'
+		when gross_npl_2023 < gross_npl_2024 then 'gross npl grew'
+		else 'stable'
+	end as gross_npl_status
+from
+	data)
+select
+	y1.bank_name,
+	y1.gross_loans_2023,
+	y1.gross_loans_2024,
+	y1.gross_loans_diff,
+	y1.growth_gross_loans_rate,
+	y1.gross_loan_status,
+	y2.gross_npl_2023,
+	y2.gross_npl_2024,
+	y2.gross_npl_diff,
+	y2.growth_gross_npl_rate,
+	y2.gross_npl_status,
+	case
+		when y1.gross_loans_diff < 0
+		and y2.gross_npl_diff < 0 then 'Healthy Deleveraging'
+		when y1.gross_loans_diff < 0
+		and y2.gross_npl_diff > 0 then 'Distressed Contraction'
+		when y1.gross_loans_diff > 0
+		and y2.gross_npl_diff > y1.gross_loans_diff 
+    then 'Risky Growth'
+		when y1.gross_loans_diff > 0
+		and y2.gross_npl_diff <= 0 
+    then 'Healthy Growth'
+		else 'Watch'
+	end as lending_quality
+from
+	yoy_gross_loans y1
+join yoy_npl_loans y2 on
+	y1.bank_name = y2.bank_name
+order by
+	y1.gross_loans_diff desc;
+
+-- Section 7: Loan Growth Trend Analysis YoY (Dec 2023 vs Dec 2024)
+-- Flags banks expanding loans while NPL deteriorates (Risky Growth)
+-- vs. banks shrinking loans while improving credit quality (Healthy Deleveraging)
+-- Classification: Healthy Growth | Risky Growth | Healthy Deleveraging | Distressed Contraction | Watch
+
+
+	--Section 8: Data Quality
+	-- Banks in market_share not matched in profitability
+	select
+		bank_name,
+		'Missing from profitability' AS issue
+	from
+		cbk_market_share
 except
-select bank_name, 'Missing from profitability'
-from cbk_profitability;
+	select
+		bank_name,
+		'Missing from profitability'
+	from
+		cbk_profitability;
 -- Result: 5 banks have name formatting inconsistencies between tables
 -- e.g. 'KCB Bank Kenya Limited' vs 'KCB Bank Kenya Ltd'
 -- These banks return NULL in Section 4 joins — a data quality limitation
-
-
 --Section 8 :Executive Summary
 -- See README.md for full findings and recommendations
