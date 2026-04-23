@@ -15,7 +15,7 @@ This repository documents my structured self-study journey from statistics gradu
 
 ## Projects
 
-### SQL — Kenya Banking Sector Analysis *(in progress)*
+### SQL — Kenya Banking Sector Analysis *(Completed)*
 - **Data:** CBK Banking Supervision Reports 2024
 - **Tools:** PostgreSQL, DBeaver
 - **Questions answered:** Which banks carry the highest credit risk? How has industry ROE trended over 5 years? Which tier of banks is most efficient?
