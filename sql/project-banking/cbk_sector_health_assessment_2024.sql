@@ -1,700 +1,621 @@
 -- ============================================================
--- Kenya Banking Sector Health Assessment 2024
--- Author: Lucy Wangui | BSc Statistics, Maseno University | 2026
--- Data: Central Bank of Kenya Banking Supervision Report 2024
--- Tools: PostgreSQL, DBeaver
+-- Kenya Banking Sector Health Assessment — 2020 to 2024
+-- Author: Lucy Wangui | BSc Applied Statistics, Maseno University
+-- Data: CBK Bank Supervision Annual Reports (2020–2024)
+-- Tools: SQLite · DB Browser for SQLite
+-- GitHub: WanguiLucy
 -- ============================================================
 
+--Q01 Top 5 Banks by Total Assets (2024)
+SELECT
+	cms.bank_name ,
+	cms.total_assets_ksh_m
+FROM
+	cbk_market_share cms
+WHERE
+	"year" = '2024'
+ORDER BY
+	cms.total_assets_ksh_m desc
+limit 5 ;  
 
---Section 1
-
-/*Questions to answer:
-- What is the asset distribution across peer groups?
-- How concentrated is the market? (HHI — Herfindahl index using SUM of squared market shares)
-- What percentage of total deposits do the top 5 banks control?
-- Running market share cumulative — at what point do you hit 80% of sector assets?*/
-
-
---i. What is the asset distribution across peer groups?
+--Q02 Average NPL Ratio by Peer Group (2023)
+SELECT
+	cms.peer_group ,
+	round(avg(cnl.npl_ratio_pct), 2) as avg_npl_ratio
+FROM
+	cbk_npl_loans cnl
+JOIN cbk_market_share cms ON
+	cnl.bank_name = cms.bank_name
+WHERE
+	cms."year" = '2023'
+	and cnl."year" = '2023'
+GROUP BY
+	cms.peer_group;
+	
+--Q03 All Loss-Making Bank-Year Combinations
 select
-	peer_group,
-	sum(cms.total_assets_ksh_m) as total_assets,
-	round(sum(cms.total_assets_ksh_m)* 100 /(select sum(cbk_market_share.total_assets_ksh_m) from cbk_market_share), 2)as pct_per_sector
+	cp."year" ,
+	cp.bank_name ,
+	cp.profit_before_tax_ksh_m as loss_amount
+from
+	cbk_profitability cp
+where
+	cp.profit_before_tax_ksh_m < 0
+order by
+	3 asc;	
+
+--Q04 Year-by-Year Sector Gross Loan Growth
+
+with lagged as (
+select
+	"year",
+	bank_name,
+	gross_loans_ksh_m,
+	lag(gross_loans_ksh_m) over (partition by bank_name
+order by
+	"year") as prev_gross_loan
+from
+	cbk_npl_loans cnl 
+)
+select
+	*,
+	round((gross_loans_ksh_m - prev_gross_loan) * 100.0 / prev_gross_loan, 2) as yoy_pct_gross_change
+from
+	lagged
+order by
+	yoy_pct_gross_change desc;
+
+--Q05 Banks Below Regulatory Capital Minimums
+select
+	cca."year" ,
+	cca.bank_name ,
+	case
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Complies_to_all_3'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Complies_to_core_capital'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Complies_to_total_capital'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Complies_to_capitaldeposits'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Both_corecapital_and_totalcapital'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Both_corecapital_and_capitaldeposit'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Both_totalcapital_and_capitaldeposits'
+		else 'Does_not_comply_to_any'
+	end as compliance_status
+from
+		cbk_capital_adequacy cca
+where
+	compliance_status != 'Complies_to_all_3'
+	group by cca.bank_name ,
+	cca."year" ;
+
+--Q06 HHI Market Concentration Index by Year
+select
+	cms."year" ,
+	round(sum(power(cms.asset_market_share_pct, 2)), 2) as HHI_Score,
+	case
+		when round(sum(power(cms.asset_market_share_pct, 2)), 2) < 1500 then 'Competitive'
+		when round(sum(power(cms.asset_market_share_pct, 2)), 2) between 1500 and 2500 then 'Moderate'
+		else 'Concentrated'
+	end as market_structure_label
+from
+		cbk_market_share cms
+group by
+		cms."year" ;
+
+--Q07 Profitability Tier Classification by Year
+with ROE_Classification as (
+select
+	cp."year" ,
+	cp.bank_name ,
+	cp.return_on_equity_pct as ROE,
+	case
+		when cp.return_on_equity_pct >= 20 THEN 'Top Performer'
+		when cp.return_on_equity_pct between 10 and 19.9 then 'Adequate'
+		when cp.return_on_equity_pct between 0 and 9.9 then 'Low Performer'
+		else 'Loss Making'
+	end as ROE_Status
+from
+		cbk_profitability cp)
+select
+	"year" ,
+	ROE_Status,
+	COUNT(bank_name) as number_of_banks
+from
+	ROE_Classification
+group by
+	ROE_Status ,
+	"year" ;
+
+--Q08 Deposit Account Growth Rate by Peer Group
+with general as (
+select
+	cms."year" ,
+	cms.peer_group ,
+	sum(case when cms.deposit_accounts is not null then cms.deposit_accounts end) as deposit_accounts
 from
 	cbk_market_share cms
 group by
-	1;
-
-
---ii. How concentrated is the market? 
-
+	cms.peer_group,
+	cms."year"
+order by
+	cms."year"),
+dep_acc_2020 as (
 select
-	round(sum(power(asset_market_share_pct, 2)), 2) as hhi_index,
-	case
-		when sum(power(asset_market_share_pct, 2))<1500 then 'Competitive' when sum(power(asset_market_share_pct,2)) between  1500  and  2500  then ' Moderately concentrated' else ' Highly Concentrated'
-	end as market_structure
+	"year" ,
+	peer_group ,
+	deposit_accounts as deposit_accounts_2020
 from
-		cbk_market_share;
-
--- HHI Result: 807 — Competitive market structure
--- Despite competitive classification, top 5 banks control 59.28% of sector assets
--- This gap between HHI and cumulative concentration is the key finding
--- HHI measures structural dominance — no single bank is dominant enough to skew it
--- But cumulative share shows practical concentration is significant
--- CBK should monitor both metrics as dual indicators of market health
--- Scale: <1500 Competitive | 1500-2500 Moderate | >2500 Highly Concentrated | 10000 Pure Monopoly
-
-
---iii. What percentage of total deposits do the top 5 banks control?
-select 
-	round(sum(percentages), 2) as top_5_deposit_control_pct
+	general
+where
+	"year" = '2020'),
+dep_acc_2024 as (
+select
+	"year" ,
+	peer_group ,
+	deposit_accounts as deposit_accounts_2024
 from
-	(
-	select
-		bank_name,
-		total_deposits_ksh_m,
-		total_deposits_ksh_m * 100 / (
-		select
-			sum(total_deposits_ksh_m)
-		from
-			cbk_market_share cms ) as percentages
-	from
-		cbk_market_share cms2
-	order by
-		2 desc
-	limit 5) as top_5 
+	general
+where
+	"year" = '2024')
+select
+	dep_acc_2020.peer_group ,
+	deposit_accounts_2020 ,
+	deposit_accounts_2024,
+	round(power(cast(deposit_accounts_2024 as float) / deposit_accounts_2020 , 0.25) - 1, 2) as CAGR_pct
+from
+	dep_acc_2020
+join dep_acc_2024 on
+	dep_acc_2020.peer_group = dep_acc_2024.peer_group ;
+/* CAGR - Compound Annual Growth Rate */
+
+--Q09 NPL Ratio vs Loan Growth Risk Quadrant (2023)
+with sector_avg as (
+select
+	round(avg(loan_growth_pct), 2) as avg_loan_growth,
+	round(avg(npl_ratio_pct), 2) as avg_npl_ratio
+from
+	cbk_npl_loans)
+select
+	cnl.bank_name, cms.peer_group ,
+	loan_growth_pct,
+	npl_ratio_pct,
+		case
+		when loan_growth_pct > avg_loan_growth
+		and npl_ratio_pct > avg_npl_ratio then 'Aggressive Risk'
+		when loan_growth_pct > avg_loan_growth
+		and npl_ratio_pct < avg_npl_ratio then 'Healthy Expansion'
+		when loan_growth_pct < avg_loan_growth 
+		and npl_ratio_pct > avg_npl_ratio then 'Stressed'
+		else 'Conservative'
+	end as risk_quadrants
+from
+		cbk_npl_loans cnl join cbk_market_share cms on cnl.bank_name = cms.bank_name ,
+	sector_avg
+where
+	cnl."year"  = '2023' and cms."year" = '2023'
 ;
 
--- Top 5 banks control 59.28% of total sector deposits
--- These are: [KCB, Equity, Co-op, NCBA, ABSA] — same banks dominating assets
--- Deposit concentration mirrors asset concentration — systemic risk is real
-
---iv. Running market share cumulative — at what point do you hit 80% of sector assets?
+--Q10 Capital Adequacy Compliance Scorecard (All Years)
 select
-	sub.bank_name ,
-	asset_market_share_pct,
-	market_cumulative_share
+	cca."year" ,
+	cca.bank_name ,
+	case
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Passed_all_3'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Passed_core_capital_1'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Passed_total_capital_1'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Passed_capitaldeposits_1'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct < 8 then 'Passed_corecapital_and_totalcapital_2'
+		when cca.core_capital_to_rwa_pct >= 10.5
+		and cca.total_capital_to_rwa_pct < 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Passed_corecapital_and_capitaldeposit_2'
+		when cca.core_capital_to_rwa_pct < 10.5
+		and cca.total_capital_to_rwa_pct >= 14.5
+		and cca.core_capital_to_deposits_pct >= 8 then 'Passed_totalcapital_and_capitaldeposits_2'
+		else 'Failed_all_3'
+	end as compliance_status
 from
-	(
-	select
-		bank_name,
-		cms.asset_market_share_pct ,
-		round(sum(cms.asset_market_share_pct) over(order by cms.asset_market_share_pct desc), 2) as market_cumulative_share
-	from
-		cbk_market_share cms) sub
-where
-	market_cumulative_share <= 80
-order by
-	3 ;
--- Only 10 out of 17 banks account for 80% of sector assets
--- The remaining 7 banks share just 20% of assets between them
--- This confirms significant asset concentration in Kenya's banking sector despite the HHI classifying it as Competitive
+		cbk_capital_adequacy cca group by cca.bank_name, cca."year" ;
 
-
- --Section 2
-  
- 
- /*Questions to answer:
-- Rank all banks by ROE and ROA — who leads each metric?
-- Which banks are loss-making? What percentage of the sector does this represent?
-- Is there a correlation between bank size (assets) and profitability (ROE)?
-- Which peer group generates the highest average profit margin?
-- Quartile analysis — which quartile does each bank fall into by profitability?*/
-
-
- 
---i. Rank all banks by ROE and ROA — who leads each metric?
+--Q11 Sector-Wide Return on Equity Trend (Peer Group Level)
 select
-	bank_name,
-	return_on_equity_pct,
-	rank() over(order by return_on_equity_pct desc ) roe_rank,
-	cp.return_on_assets_pct,
-	rank() over( order by cp.return_on_assets_pct desc) roa_rank
-from
-	cbk_profitability cp ;
- 
- 
- --ii. Which banks are loss-making? What percentage of the sector does this represent?
-select
-	count(bank_name) as loss_making_banks,
-	count(bank_name) * 100 /(
-	select
-		count(bank_name)
-	from
-		cbk_profitability) as pct_loss_making_banks
-from
-	cbk_profitability cp
-where
-	cp.profit_before_tax_ksh_m <0 ;
-
---iii. percentage of total sector profit that is loss 
- select round(sum(sub.profit_before_tax_ksh_m ) *100 /(select sum(profit_before_tax_ksh_m) from cbk_profitability ) ,2) as total_loss_pct
- from (select
-	bank_name,
-	cp.profit_before_tax_ksh_m  
-from
-	cbk_profitability cp
-where
-	cp.profit_before_tax_ksh_m <0
-order by
-	cp.profit_before_tax_ksh_m desc)sub ;
--- Result is negative because losses reduce total sector profit
--- 10 out of 39 banks (25%) are loss-making in 2024
--- However their combined losses represent only -4% of total sector profit
--- This means the profitable banks are generating enough to absorb the losses
--- The sector is profitable overall despite 1 in 4 banks losing money
--- Risk is concentrated in smaller banks — large banks remain profitable
-
- --iv. Is there a correlation between bank size (assets) and profitability (ROE)?
-  select
-	bank_name,
-	cp.total_assets_ksh_m ,
-	cp.return_on_equity_pct,
-	rank() over(order by cp.return_on_equity_pct desc ) as roe_rank
-from
-	cbk_profitability cp
-order by
-	2 desc;
- 
- -- No consistent correlation between asset size and ROE
--- From roe:Large asset does not guarantee high ROE
--- e.g. Equity (2nd largest) has lower ROE than Citibank (much smaller)
--- Citibank's high ROE despite small size suggests superior operational efficiency
- -- Size rank and ROE rank frequently diverge — efficiency matters more than scale
-
- 
- --v. Which peer group generates the highest average profit margin?
-select
-	cms.peer_group ,
-	avg(cp.profit_before_tax_ksh_m) as avg_profit_margin
+	cms."year" ,
+	cms.peer_group,
+	round(avg(cp.return_on_equity_pct), 2) as avg_ROE
 from
 	cbk_market_share cms
 join cbk_profitability cp on
-	cms.bank_name = cp.bank_name
+	cms.bank_name = cp.bank_name and cms."year" = cp."year" 
 group by
-	1
-order by
-	2 desc
-;
--- Large peer group generates 7x higher average profit than Medium peer group
--- Large banks avg profit: KSh 24,382M vs Medium banks: KSh 3,326M
--- This gap is driven by scale advantages — larger loan books, more deposit accounts and stronger brand recognition driving customer volumes
--- JOIN on bank_name reduces sample size due to name inconsistencies
--- Results directionally correct but exact figures may shift with clean data
- 
--- vi. How do Large vs Medium banks compare across all profitability metrics? 
-SELECT
-    cms.peer_group,
-    AVG(cp.profit_before_tax_ksh_m) AS avg_absolute_profit,
-    AVG(cp.return_on_assets_pct) AS avg_roa,
-    AVG(cp.return_on_equity_pct) AS avg_roe
-FROM cbk_market_share cms
-JOIN cbk_profitability cp ON cms.bank_name = cp.bank_name
-GROUP BY 1
-ORDER BY 2 DESC;
--- Large banks outperform Medium banks on every profitability metric
--- Large banks: Avg ROA 3.725% | Avg ROE 23.775%
--- Medium banks: Avg ROA 1.8%  | Avg ROE -0.8625%
--- Medium banks show NEGATIVE average ROE — destroying shareholder value on average
--- This means the loss-making Medium banks are dragging the group average below zero
--- Large banks are not just bigger — they are genuinely more efficient and profitable
--- Scale advantages in banking are real and significant in Kenya's sector
--- Medium bank negative ROE is heavily influenced by Ecobank (-90.9%) and Access Bank (-159%)
--- These two outliers pull the Medium group average into negative territory
+	cms."year",
+	cms.peer_group ;
 
-
- --vii. Quartile analysis — which quartile does each bank fall into by profitability?
+--Q12 YoY ROA Change — Top Improvers and Deteriorators
 select
+	cp."year" ,
+	cms.peer_group ,
 	cp.bank_name ,
-	ntile(4) over(order by cp.profit_before_tax_ksh_m ) as quartiles
+	cp.return_on_assets_pct as ROA,
+	lag(cp.return_on_assets_pct) over(partition by cp.bank_name order by cp."year" ) as prev_ROA,
+	round((cp.return_on_assets_pct - lag(cp.return_on_assets_pct) over(partition by cp.bank_name order by cp."year")) * 100 / lag(cp.return_on_assets_pct) over(partition by cp.bank_name order by cp."year"), 2) as yoy_ROA_change_pct
 from
-	cbk_profitability cp ;
+	cbk_profitability cp
+join cbk_market_share cms on
+	cp.bank_name = cms.bank_name
+	and cp."year" = cms."year"
+ ;
 
--- Quartile 1: Bottom 25% — most loss-making or least profitable banks
--- Quartile 2: Lower middle 25%
--- Quartile 3: Upper middle 25%
--- Quartile 4: Top 25% — most profitable banks
- 
-  --section 3 
- 
- /* Questions to answer:
-
--Which banks have NPL ratios above CBK's 5% benchmark? How many?
-- Which banks improved NPL ratios from 2023 to 2024? Which worsened?
-- What is the sector average NPL ratio weighted by loan book size?
-- Rank banks by NPL deterioration — who got worse the fastest?
-- Is there a relationship between bank size and NPL ratio?
-- (Large banks — are they better or worse than Medium banks on average?) */
- 
- --i. Which banks have NPL ratios above CBK's 5% benchmark? How many? 
- 
+--Q13 Rolling 3-Year Average NPL Ratio per Bank
+with rolling_3yr_ratio as (
 select
-	bank_name,
-	cnl.npl_ratio_dec24_pct,
-	count(*) over() as total_above_benchmark
+	cnl."year" ,
+	cnl.bank_name,
+	cnl.npl_ratio_pct,
+	round(AVG(cnl.npl_ratio_pct) OVER (PARTITION BY bank_name
+ORDER BY
+	cnl."year" ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 2) as rolling_3
 from
-	cbk_npl_loans cnl
-where
-	cnl.npl_ratio_dec24_pct >5 ;
-
--- 37 out of 38 banks exceed CBK's 5% NPL benchmark
--- Only 1 bank is within the acceptable range
-
-
---ii. Which banks improved NPL ratios from 2023 to 2024? Which worsened?
+	cbk_npl_loans cnl)
 select
-	cnl.bank_name ,
-	cnl.npl_ratio_dec23_pct ,
-	cnl.npl_ratio_dec24_pct,
+	*,
 	case
-		when cnl.npl_ratio_dec23_pct > cnl.npl_ratio_dec24_pct then 'Improved'
-		when cnl.npl_ratio_dec23_pct < cnl.npl_ratio_dec24_pct then 'Worsened'
+		when rolling_3 > npl_ratio_pct then 'Improving'
+		when rolling_3 < npl_ratio_pct then 'Worsening'
 		else 'No Change'
-	end as npl_status
+	end as Status
 from
-		cbk_npl_loans cnl
-order by
-		3 desc ;
--- 22 banks worsened, 15 improved, 1 no change
--- More than half the sector saw NPL ratios deteriorate in 2024
--- Credit Bank Plc worst at 59.6% NPL 
--- UBA Kenya Bank Kenya L best performer — improved from 20.9% to 6.5%
- 
- --iii. What is the sector average NPL ratio weighted by loan book size?
- select
-	round(sum(cnl.npl_ratio_dec23_pct * cnl.gross_loans_dec23_ksh_m )/ sum(cnl.gross_loans_dec23_ksh_m), 2) as weighted_avg_npl_2023,
-	round(sum(cnl.npl_ratio_dec24_pct * cnl.gross_loans_dec24_ksh_m )/ sum(cnl.gross_loans_dec24_ksh_m), 2) as weighted_avg_npl_2024
-from
-	cbk_npl_loans cnl ;
+	rolling_3yr_ratio;
 
---Sector weighted avg NPL rose from 15.52% (2023) to 17.11% (2024)
--- Weighted by loan book size so reflects true sector credit risk exposure
--- A 1.59 percentage point deterioration in one year is significant
--- Simple average would overweight small banks — weighted average is more accurate
--- Weighted average weights each bank's NPL by its loan book size
--- Simple average treats a KSh 10B and KSh 1T loan book equally — misleading
--- Weighted average reflects the true sector-wide credit risk exposure 
- 
- 
- 
- --iv. Rank banks by NPL deterioration — who got worse the fastest?
+--Q14 Bank Asset Rank Shift: 2020 to 2024
+with ranks_2020 as (
 select
-	cnl.bank_name ,
-	cnl.npl_ratio_dec23_pct ,
-	cnl.npl_ratio_dec24_pct,
-	(cnl.npl_ratio_dec24_pct - cnl.npl_ratio_dec23_pct) as npl_change
+	cms."year" ,
+	cms.bank_name ,
+	cms.total_assets_ksh_m as assets_2020,
+	rank() over(partition by cms."year" order by cms.total_assets_ksh_m desc) as assets_rank_2020
 from
-		cbk_npl_loans cnl
+	cbk_market_share cms
 where
-	cnl.npl_ratio_dec23_pct < cnl.npl_ratio_dec24_pct
-order by
-	4 desc; 
- -- Ranked by absolute point change, not percentage change
---Guaranty Trust Bank deteriorated fastest — NPL jumped 23 points from 32.8% to 55.8% in one year — more than half its loans now non-performing
--- Credit Bank Plc at 59.6% is the highest absolute NPL in the sector
--- Top 5 fastest deteriorating banks all saw NPL rise by more than 9 points in one year
- 
- 
- --v. Is there a relationship between bank size and NPL ratio?
- 
- select
-	cms.bank_name,
-	cms.total_assets_ksh_m ,rank() over(order by cms.total_assets_ksh_m desc ) as size_rank,
-	cnl.npl_ratio_dec24_pct,rank() over(order by cnl.npl_ratio_dec24_pct ) as npl_rank
+	"year" = '2020'),
+ranks_2024 as(select
+	cms."year" ,
+	cms.bank_name ,
+	cms.total_assets_ksh_m as assets_2024,
+	rank() over(partition by cms."year" order by cms.total_assets_ksh_m desc) as assets_rank_2024
 from
 	cbk_market_share cms
-join cbk_npl_loans cnl on
-	cms.bank_name = cnl.bank_name
-order by
-	2 desc;
--- No clear relationship between bank size and NPL ratio
--- Co-operative Bank (size rank 1) has NPL rank 7 — large but poor loan quality
--- Citibank (size rank 4) has NPL rank 1 — best loan quality despite smaller size
--- Standard Chartered (size rank 2) has NPL rank 2 — size and quality aligned
--- Loan quality is driven by credit risk management, not bank size
- 
- 
- --vi. (Large banks — are they better or worse than Medium banks on average?)
-  select
-	cms.peer_group ,
-	round(avg(cms.total_assets_ksh_m),2) as avg_assets,
-	round(avg(cnl.npl_ratio_dec24_pct),2) as avg_npl_ratio_2024
-from
-	cbk_market_share cms
-join cbk_npl_loans cnl on
-	cms.bank_name = cnl.bank_name
-	group by 1;
--- Medium banks have higher average NPL (14.03%) than Large banks (12.05%)
--- Despite having smaller loan books, Medium banks carry proportionally more bad loans
--- Large banks benefit from more sophisticated credit risk management systems
--- However both peer groups far exceed CBK's 5% benchmark
--- The entire sector requires attention, not just specific peer groups 
- 
- 
---section 4
-/* The flagship output — classify every bank using ALL metrics combined:
-
-Classification framework:
-- 'Tier 1 — Strong'     : ROE > 15% AND NPL < 10% AND asset rank <= 10
-- 'Tier 2 — Stable'     : ROE > 0% AND NPL < 20%
-- 'Tier 3 — Watch'      : ROE > 0% BUT NPL >= 20% OR ROE between 0-5%
-- 'Tier 4 — Distressed' : Negative ROE OR NPL > 40%
-
-Additional flags:
-- Capital thin flag: shareholders_funds < 5,000M
-- NPL worsening flag: npl_ratio_dec24 > npl_ratio_dec23
-- Size context: peer_group label
-
-Final output per bank:
-bank_name | tier | capital_flag | npl_trend | peer_group | asset_rank */
-
+where
+	"year" = '2024')
 select
-	cms.bank_name,
-	CASE
-		when cp.return_on_equity_pct < 0
-		or cnl.npl_ratio_dec24_pct > 40 then 'Tier 4 - Distressed'
-		when cp.return_on_equity_pct > 15
-		and cnl.npl_ratio_dec24_pct < 10
-		and cms.market_rank <= 10 then 'Tier 1 - Strong'
-		when cp.return_on_equity_pct > 0
-		and cnl.npl_ratio_dec24_pct < 20 then 'Tier 2 - Stable'
-		when cp.return_on_equity_pct between 0 and 5
-		or (cp.return_on_equity_pct > 0
-		and cnl.npl_ratio_dec24_pct >= 20) then 'Tier 3 - Watch'
-		when cp.return_on_equity_pct is null
-		or cnl.npl_ratio_dec24_pct is null then 'No Data — Name Mismatch'
-	end as Tier,
+	r0.bank_name ,
+	r0.assets_2020 ,
+	r4.assets_2024,
+	r0.assets_rank_2020,
+	r4.assets_rank_2024,
+	r0.assets_rank_2020 - r4.assets_rank_2024 as asset_rank_diff,
 	case
-		when cms.shareholders_funds_ksh_m < 5000 then 'Capital Thin'
-		else 'Adequate'
-	end as capital_flag,
-	case
-		when cnl.npl_ratio_dec24_pct > cnl.npl_ratio_dec23_pct then 'Worsening'
-		when cnl.npl_ratio_dec24_pct < cnl.npl_ratio_dec23_pct then 'Improving'
+		when r0.assets_rank_2020 > r4.assets_rank_2024 then 'Climbed'
+		when r0.assets_rank_2020 < r4.assets_rank_2024 then 'Fell'
 		else 'Stable'
-	end as npl_trend,
-	cms.peer_group ,
-	rank() over(order by cms.total_assets_ksh_m desc) as asset_rank
+	end as rank_status
+from
+		ranks_2020 r0
+join ranks_2024 r4 on
+		r0.bank_name = r4.bank_name; 
+
+--Q15 Loan-to-Deposit Ratio Analysis by Bank and Year
+select
+	cnl."year" ,
+	cnl.bank_name,
+	cnl.gross_loans_ksh_m ,
+	cms.total_deposits_ksh_m,
+	round((cnl.gross_loans_ksh_m * 100 / cms.total_deposits_ksh_m ), 2) as LDR_pct,
+	case
+		when round((cnl.gross_loans_ksh_m * 100 / cms.total_deposits_ksh_m ), 2) > 110 then 'Very High'
+		when round((cnl.gross_loans_ksh_m * 100 / cms.total_deposits_ksh_m ), 2) between 90 and 110 then 'High'
+		when round((cnl.gross_loans_ksh_m * 100 / cms.total_deposits_ksh_m ), 2) between 70 and 90 then 'Optimal'
+		else 'Low'
+	end as LDR_Risk,
+	case
+		when round((cnl.gross_loans_ksh_m * 100 / cms.total_deposits_ksh_m ), 2) > 90 then 'Above 90'
+		else 'Below 90'
+	end as crossed_flag
 from
 		cbk_market_share cms
-left join cbk_profitability cp on
-		cms.bank_name = cp.bank_name
-left join cbk_npl_loans cnl on
-		cms.bank_name = cnl.bank_name ;
+join cbk_npl_loans cnl on
+		cms.bank_name = cnl.bank_name
+	and cms."year" = cnl."year" ;
 
--- Tier 1 Strong: 0 banks — name mismatch prevents Large bank classification
--- Tier 2 Stable: 5 banks (Prime, Citibank, Family, Bank of India, cooperative bank of kenya ltd)
--- Tier 3 Watch: 1 bank (National Bank of Kenya)
--- Tier 4 Distressed: 2 banks (Ecobank, SBM Bank)
--- No Data-Name Mismatch: 9 banks — due to bank_name inconsistencies across tables
-
-
---Section 5
-
-/*Questions to answer:
-1. Rank all banks by core_capital_ksh_m — who has the strongest capital base?
-
-2. Which banks are below CBK's minimum capital ratios?
-   - core_capital_to_rwa_pct < 10.5% (CBK minimum)
-   - total_capital_to_rwa_pct < 14.5% (CBK minimum)
-   - core_capital_to_deposits_pct < 8% (CBK minimum)
-
-3. Classify each bank as:
-   - 'Well Capitalised' if total_capital_to_rwa_pct >= 14.5%
-   - 'Adequately Capitalised' if between 10.5% and 14.5%
-   - 'Undercapitalised' if below 10.5%
-
-4. For each bank calculate the capital buffer above CBK minimum:
-   (total_capital_to_rwa_pct - 14.5) as capital_buffer
- 
-5. Quartile analysis — which quartile does each bank fall into
-   by total_capital_to_rwa_pct?
-
-6. Which banks have negative core_capital_to_deposits_pct? */
-
-
---i. Rank all banks by core_capital_ksh_m — who has the strongest capital base?
+--Q16 NPL Coverage Ratio Estimation
+with bad_loan_coverage as (
 select
-	cca.bank_name ,
-	cca.core_capital_ksh_m,
-	rank() over(order by cca.core_capital_ksh_m desc) as core_capital_rank
+	cnl."year" ,
+	cnl.bank_name ,
+	cca.core_capital_ksh_m as core_capital ,
+	cnl.gross_loans_ksh_m as gross_loans ,
+	round((cca.core_capital_ksh_m * 100 / cnl.gross_loans_ksh_m ), 2) as capital_to_loans_buffer
 from
-	cbk_capital_adequacy cca ;
--- KCB leads with KSh 144,770M core capital — strongest buffer in the sector
--- Top 3: KCB, Equity, Co-op — same banks that dominate assets and deposits
-
---ii. Which banks are below CBK's minimum capital ratios?
--- core_capital_to_rwa_pct < 10.5% (CBK minimum)
--- total_capital_to_rwa_pct < 14.5% (CBK minimum)
--- core_capital_to_deposits_pct < 8% (CBK minimum)
+	cbk_npl_loans cnl
+join cbk_capital_adequacy cca on
+	cca.bank_name = cnl.bank_name and cca."year" = cnl."year" )
 select
-	bank_name,
-	core_capital_to_rwa_pct, cca.total_capital_to_rwa_pct ,
-	cca.core_capital_to_deposits_pct
-from
-	cbk_capital_adequacy cca
-where
-	core_capital_to_rwa_pct < 10.5
-	or total_capital_to_rwa_pct < 14.5
-	or core_capital_to_deposits_pct < 8  ;
---shows 6 banks that violated/breached the minimum requirement 
--- Breaching core_capital_to_deposits is the most serious — it signals inability to cover depositor obligations
-
---iii.Classify each bank as:
-   	-- 'Well Capitalised' if total_capital_to_rwa_pct >= 14.5%
-  	-- 'Adequately Capitalised' if between 10.5% and 14.5%
-   	-- 'Undercapitalised' if below 10.5%
-
-select
-	bank_name,
-	total_capital_to_rwa_pct,
+	*,
+	rank() over(partition by "year" order by capital_to_loans_buffer desc) as coverage_rank,
 	case
-		when total_capital_to_rwa_pct >= 14.5 then 'Well Capitalised'
-		when total_capital_to_rwa_pct between 10.5 and 14.5 then 'Adequately Capitalised'
-		else 'Undercapitalised'
-	end as capitalised_status
+		when gross_loans > core_capital then 'Insufficient Capital Coverage'
+		when gross_loans < core_capital then 'Sufficient Capital Coverage'
+		else 'No Coverage Needed'
+	end as capital_at_risk_flag
 from
-		cbk_capital_adequacy cca
+		bad_loan_coverage group by bank_name, "year" ; 
+
+--Q17 Concentration Risk: Top 5 Banks' Share Over Time
+with ranked as (
+select
+	cms."year" ,
+	cms.bank_name ,
+	cms.total_assets_ksh_m ,
+	rank() over (partition by cms."year"
 order by
-	2 desc;
-
-
---iv.For each bank calculate the capital buffer above CBK minimum:
--- (total_capital_to_rwa_pct - 14.5) as capital_buffer
- select
-	bank_name,
-	total_capital_to_rwa_pct,
-	total_capital_to_rwa_pct - 14.5 as capital_buffer
-from
-	cbk_capital_adequacy cca ;
-
--- Positive buffer = excess capital above regulatory minimum
--- Bank of India has the largest buffer (85.3% - 14.5% = +70.8 points)
-
-
---v. Quartile analysis — which quartile does each bank fall into by total_capital_to_rwa_pct?
-select
-	cca.bank_name ,
-	cca.total_capital_to_rwa_pct,
-	ntile(4) over(order by cca.total_capital_to_rwa_pct desc) as quartiles
-from
-	cbk_capital_adequacy cca;
--- Quartile 1: Most capitalised banks — strongest regulatory buffer
--- Quartile 4: Least capitalised — closest to or breaching minimums
-
---vi. Which banks have negative core_capital_to_deposits_pct?
-select
-	bank_name,
-	cca.core_capital_to_deposits_pct
-from
-	cbk_capital_adequacy cca
-where
-	cca.core_capital_to_deposits_pct <0;
-
---These are structurally fragile — deposits exceed core capital significantly
--- Negative core_capital_to_deposits_pct means core capital is insufficient to cover deposit obligations — a serious liquidity risk signal
--- Family Bank (-78.7%) and Gulf African Bank (-1.4%) are flagged
-
---vii. Which banks are Well Capitalised BUT have high NPL?
-select
-	cca.bank_name,
-	cca.total_capital_to_rwa_pct,
-	cnl.npl_ratio_dec24_pct,
-	case
-		when cca.total_capital_to_rwa_pct >= 14.5
-		and cnl.npl_ratio_dec24_pct > 20 then 'Capital Strong — NPL Risk'
-		when cca.total_capital_to_rwa_pct >= 14.5
-		and cnl.npl_ratio_dec24_pct <= 20 then 'Capital Strong — NPL Acceptable'
-		when cca.total_capital_to_rwa_pct < 14.5
-		and cnl.npl_ratio_dec24_pct > 20 then 'Double Risk — Capital AND NPL'
-		else 'Capital Weak — NPL Acceptable'
-	end as risk_profile
-from
-	cbk_capital_adequacy cca
-join cbk_npl_loans cnl ON
-	cca.bank_name = cnl.bank_name
-order by
-	cnl.npl_ratio_dec24_pct desc;
-
-
---Section 6
-/* Questions to answer:
-1. Year on year change in gross loans per bank
-
-2. Which banks grew their loan book the most?
-   Which banks shrank?
-
-3. Year on year change in NPL amount
-   (gross_npl_dec24 - gross_npl_dec23)
-   Growing loan book + growing NPL = double risk
-
-4. Deposits to loans ratio per bank using cbk_market_share
-   (total_deposits / loan_accounts_count)
-   Which banks are most efficiently converting deposits to loans? */
-
---i.  Year on year change in gross loans per bank
-select
-	cnl.bank_name ,
-	cnl.gross_loans_dec23_ksh_m ,
-	cnl.gross_loans_dec24_ksh_m ,
-	(cnl.gross_loans_dec24_ksh_m - cnl.gross_loans_dec23_ksh_m )* 100 / cnl.gross_loans_dec23_ksh_m  as change_in_gross_loans
-from
-	cbk_npl_loans cnl ;
-
---ii.Which banks grew their loan book the most? and Which banks shrank?
-select
-	cnl.bank_name ,
-	cnl.gross_loans_dec23_ksh_m ,
-	cnl.gross_loans_dec24_ksh_m ,
-	(cnl.gross_loans_dec24_ksh_m - cnl.gross_loans_dec23_ksh_m )* 100 / cnl.gross_loans_dec23_ksh_m as change_in_gross_loans,
-	case
-		when cnl.gross_loans_dec23_ksh_m > cnl.gross_loans_dec24_ksh_m then 'Shrank'
-		when cnl.gross_loans_dec23_ksh_m < cnl.gross_loans_dec24_ksh_m then 'Grew'
-		else 'Stable'
-	end as loan_book_status
-from
-		cbk_npl_loans cnl ;
-
---iii.  Year on year change in NPL amount
-
-select
-	cnl.bank_name ,
-	cnl.gross_npl_dec23_ksh_m ,
-	cnl.gross_npl_dec24_ksh_m  ,
-	(cnl.gross_npl_dec24_ksh_m - cnl.gross_npl_dec23_ksh_m )* 100 / cnl.gross_npl_dec23_ksh_m  as change_in_gross_npl
-from
-	cbk_npl_loans cnl ;
-
---iv.-- Double risk flag: banks growing loan book AND growing NPL simultaneously   
-	-- Growing loan book + growing NPL = double risk
-select 
-    cnl.bank_name,
-    (cnl.gross_loans_dec24_ksh_m - cnl.gross_loans_dec23_ksh_m) * 100 / cnl.gross_loans_dec23_ksh_m as loan_growth_pct,
-    (cnl.gross_npl_dec24_ksh_m - cnl.gross_npl_dec23_ksh_m) * 100 / cnl.gross_npl_dec23_ksh_m as npl_growth_pct,
-    case when cnl.gross_loans_dec24_ksh_m > cnl.gross_loans_dec23_ksh_m
-      and cnl.gross_npl_dec24_ksh_m   > cnl.gross_npl_dec23_ksh_m
-       then 'Double Risk — Loan AND NPL Growth'
-       when cnl.gross_loans_dec24_ksh_m > cnl.gross_loans_dec23_ksh_m
-        then 'Loan Growth Only'
-        when cnl.gross_npl_dec24_ksh_m   > cnl.gross_npl_dec23_ksh_m
-        then 'NPL Growth Only'
-        else 'No Growth Risk'
-    end as risk_flag
-from cbk_npl_loans cnl
-order by 4;
-
---v. Deposits to loans ratio per bank using cbk_market_share
--- (total_deposits / loan_accounts_count)
---  Which banks are most efficiently converting deposits to loans?
-select
-	cms.bank_name,
-	cms.total_deposits_ksh_m ,
-	cms.loan_accounts_count,
-		round(cms.total_deposits_ksh_m / cms.loan_accounts_count , 2) as ksh_per_loan_account
+	cms.total_assets_ksh_m desc) as assets_rank
 from
 	cbk_market_share cms
-order by
-	4 desc;
--- 12 banks: Double Risk — loan AND NPL growth simultaneously
--- 6 banks: Loan Growth Only — credit expanding, asset quality holding
--- 14 banks: NPL Growth Only — shrinking books but NPLs still rising (most concerning)
--- 6 banks: No Growth Risk — both contracting, conservative/deleveraging posture
--- DIB Bank Kenya Ltd most extreme — NPL surged 150% on just 5% loan growth
--- UBA Kenya best performer — loans -56%, NPLs -86% (active cleanup)
-
-
---Section 7:Trend Analysis -loan growth yoy
-with data as (
+group by
+	cms.bank_name ,
+	"year"),
+ranked_5 as (
 select
-	bank_name,
-	cnl.gross_loans_dec23_ksh_m gross_loans_2023,
-	cnl.gross_loans_dec24_ksh_m gross_loans_2024,
-	cnl.gross_npl_dec23_ksh_m as gross_npl_2023,
-	cnl.gross_npl_dec24_ksh_m as gross_npl_2024
+	*
 from
-	cbk_npl_loans cnl),
-yoy_gross_loans as (
+	ranked
+where
+	assets_rank <= 5)
 select
-	bank_name,
-	gross_loans_2024,
-		gross_loans_2023,
-	gross_loans_2024 - gross_loans_2023 as gross_loans_diff,
-	concat(round((gross_loans_2024 - gross_loans_2023) * 100 / gross_loans_2023, 2), '%') as growth_gross_loans_rate,
+	"year" ,
+	sum(total_assets_ksh_m) as total_assets,
+	lag(sum(total_assets_ksh_m)) over(order by "year" ) as prev_total_assets,
 	case
-		when gross_loans_2023 > gross_loans_2024 then 'gross loan reduced'
-		when gross_loans_2023 < gross_loans_2024 then 'gross loan grew'
-		else 'stable'
-	end as gross_loan_status
+		when sum(total_assets_ksh_m) > lag(sum(total_assets_ksh_m)) over(order by "year" ) then 'Rising'
+		when sum(total_assets_ksh_m) < lag(sum(total_assets_ksh_m)) over(order by "year" ) then 'Dropping'
+		else 'Stable'
+	end as change_status
 from
-	data
-),
-yoy_npl_loans as (
+		ranked_5
+group by
+		"year" ;
+
+--Q18 Composite Bank Health Score (All Four Datasets)
+with
+size_score as (
 select
-	bank_name,
-	gross_npl_2024,
-	gross_npl_2023,
-	gross_npl_2024 - gross_npl_2023 as gross_npl_diff,
-	concat(round((gross_npl_2024 - gross_npl_2023) * 100 / gross_npl_2023 , 2), '%') as growth_gross_npl_rate,
-	case
-		when gross_npl_2023 > gross_npl_2024 then 'gross npl reduced'
-		when gross_npl_2023 < gross_npl_2024 then 'gross npl grew'
-		else 'stable'
-	end as gross_npl_status
-from
-	data)
-select
-	y1.bank_name,
-	y1.gross_loans_2023,
-	y1.gross_loans_2024,
-	y1.gross_loans_diff,
-	y1.growth_gross_loans_rate,
-	y1.gross_loan_status,
-	y2.gross_npl_2023,
-	y2.gross_npl_2024,
-	y2.gross_npl_diff,
-	y2.growth_gross_npl_rate,
-	y2.gross_npl_status,
-	case
-		when y1.gross_loans_diff < 0
-		and y2.gross_npl_diff < 0 then 'Healthy Deleveraging'
-		when y1.gross_loans_diff < 0
-		and y2.gross_npl_diff > 0 then 'Distressed Contraction'
-		when y1.gross_loans_diff > 0
-		and y2.gross_npl_diff > y1.gross_loans_diff 
-    then 'Risky Growth'
-		when y1.gross_loans_diff > 0
-		and y2.gross_npl_diff <= 0 
-    then 'Healthy Growth'
-		else 'Watch'
-	end as lending_quality
-from
-	yoy_gross_loans y1
-join yoy_npl_loans y2 on
-	y1.bank_name = y2.bank_name
-order by
-	y1.gross_loans_diff desc;
-
--- Section 7: Loan Growth Trend Analysis YoY (Dec 2023 vs Dec 2024)
--- Flags banks expanding loans while NPL deteriorates (Risky Growth)
--- vs. banks shrinking loans while improving credit quality (Healthy Deleveraging)
--- Classification: Healthy Growth | Risky Growth | Healthy Deleveraging | Distressed Contraction | Watch
-
-
-	--Section 8: Data Quality
-	-- Banks in market_share not matched in profitability
-	select
 		bank_name,
-		'Missing from profitability' AS issue
-	from
+		(asset_market_share_pct - min(asset_market_share_pct) over())
+      / nullif(max(asset_market_share_pct) over() - min(asset_market_share_pct) over(), 0) as norm_size
+from
 		cbk_market_share
-except
-	select
+where
+		year = '2023'
+),
+	credit_score as (
+select
 		bank_name,
-		'Missing from profitability'
+		1.0 - (npl_ratio_pct - min(npl_ratio_pct) over())
+      / nullif(max(npl_ratio_pct) over() - min(npl_ratio_pct) over(), 0) as norm_credit
+from
+		cbk_npl_loans
+where
+		year = '2023'
+),
+	profit_score as (
+select
+		bank_name,
+		(return_on_assets_pct - min(return_on_assets_pct) over())
+      / nullif(max(return_on_assets_pct) over() - min(return_on_assets_pct) over(), 0) as norm_profit
+from
+		cbk_profitability
+where
+		"year" = '2023'
+),
+	capital_score as (
+select
+	bank_name,
+	(cca.core_capital_to_rwa_pct - min(cca.core_capital_to_rwa_pct) over()) 
+	/ nullif(max(cca.core_capital_to_rwa_pct) over() - min(cca.core_capital_to_rwa_pct) over(), 0) as norm_capital
+from
+	cbk_capital_adequacy cca
+where
+	"year" = '2023')
+select
+	s.bank_name,
+	round(s.norm_size, 3) as size_score,
+	round(c.norm_credit, 3) as credit_score,
+	round(p.norm_profit, 3) as profit_score,
+	round(cs.norm_capital,3) as capital_score,
+	round((s.norm_size + c.norm_credit + p.norm_profit + cs.norm_capital) / 4.0, 3) as composite_score,
+	rank() over (
+order by
+	(s.norm_size + c.norm_credit + p.norm_profit + cs.norm_capital) / 4.0 desc) as health_rank
+from
+	size_score s
+left join credit_score c on
+	s.bank_name = c.bank_name
+left join profit_score p on
+	s.bank_name = p.bank_name
+left join capital_score cs on
+	s.bank_name = cs.bank_name
+order by
+	composite_score desc;
+
+--Q19 Identifying and Tracking Systemically Important Banks (SIBs)
+with
+median_capital as (
+select
+	avg(core_capital_to_rwa_pct) as sector_median
+from
+	(
+	select
+		core_capital_to_rwa_pct
 	from
-		cbk_profitability;
--- Result: 5 banks have name formatting inconsistencies between tables
--- e.g. 'KCB Bank Kenya Limited' vs 'KCB Bank Kenya Ltd'
--- These banks return NULL in Section 4 joins — a data quality limitation
---Section 8 :Executive Summary
--- See README.md for full findings and recommendations
+		cbk_capital_adequacy
+	where
+		"year" = '2023'
+		and core_capital_to_rwa_pct is not null
+	order by
+		core_capital_to_rwa_pct
+	limit 2 - (
+	select
+		count(*)
+	from
+		cbk_capital_adequacy
+	where
+		"year" = '2023'
+		and core_capital_to_rwa_pct is not null) % 2
+    offset (
+	select
+		(count(*) - 1) / 2
+	from
+		cbk_capital_adequacy
+	where
+		"year" = '2023'
+		and core_capital_to_rwa_pct is not null)
+  )
+),
+sib_flags as (
+select
+	cms."year",
+	cms.bank_name,
+	cms.asset_market_share_pct,
+	cca.core_capital_to_rwa_pct,
+	case
+		when cms.asset_market_share_pct > 5
+			and cca.core_capital_to_rwa_pct > sector_median 
+         then 1
+			else 0
+		end as is_sib
+	from
+		cbk_market_share cms
+	join cbk_capital_adequacy cca on
+		cms.bank_name = cca.bank_name
+		and cms."year" = cca."year",
+		median_capital
+	where
+		cms."year" in ('2023', '2024')
+)
+select
+	"year",
+	bank_name,
+	is_sib,
+	case
+		when is_sib = 1
+		and lag(is_sib) over (partition by bank_name
+	order by
+		year) = 1 then 'retained'
+		when is_sib = 1
+		and lag(is_sib) over (partition by bank_name
+	order by
+		year) = 0 then 'gained'
+		when is_sib = 0
+		and lag(is_sib) over (partition by bank_name
+	order by
+		year) = 1 then 'lost'
+		else 'n/a'
+	end as sib_status
+from
+	sib_flags
+order by
+	bank_name,
+	"year";
+
+  
+--Q20 Full Sector Stress Index — 2020 to 2024
+with
+high_npl as (
+select
+	"year" ,
+	round(count(case when npl_ratio_pct > 15 then 1 end) * 100.0 / count(*), 2) as pct_high_npl
+from
+	cbk_npl_loans
+group by
+	"year" 
+),
+loss_banks as (
+select
+	"year" ,
+	round(count(case when profit_before_tax_ksh_m < 0 then 1 end) * 100.0 / count(*), 2) as pct_loss
+from
+	cbk_profitability
+group by
+	"year" 
+),
+core_capital as (
+select
+	cca."year" ,
+	round(count(case when core_capital_to_rwa_pct >= 10.5 then 1 end) * 100.0 / count(*), 2) as capital_score
+from
+	cbk_capital_adequacy cca
+group by
+	"year" ),
+hhi as (
+select
+	year,
+	sum(power(asset_market_share_pct, 2)) as hhi_score
+from
+	cbk_market_share
+group by
+	"year" 
+),
+combined as (
+select
+	h.year,
+	h.pct_high_npl,
+	l.pct_loss,
+	cs.capital_score,
+	hhi.hhi_score
+from
+	high_npl h
+join loss_banks l on
+	h."year" = l."year"
+join core_capital cs on
+	h."year" = cs."year"
+join hhi on
+	h."year" = hhi."year" 
+)
+select
+	year,
+	pct_high_npl,
+	pct_loss,
+	capital_score,
+	round(hhi_score, 2) as hhi_score,
+	round((
+   1 - ((pct_high_npl - min(pct_high_npl) over()) / nullif(max(pct_high_npl) over() - min(pct_high_npl) over(), 0))
+    + 1 - ((pct_loss - min(pct_loss) over()) / nullif(max(pct_loss) over() - min(pct_loss) over(), 0)) 
+    + (capital_score - min(capital_score) over()) / nullif(max(capital_score) over() - min(capital_score) over(), 0)
+    + 1- ((hhi_score - min(hhi_score) over()) / nullif(max(hhi_score) over() - min(hhi_score) over(), 0))
+  ) / 4.0, 3) as stress_index
+from
+	combined
+order by
+	"year" ;
+
+

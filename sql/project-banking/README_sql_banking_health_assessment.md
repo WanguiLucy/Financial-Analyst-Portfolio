@@ -1,86 +1,138 @@
-# Kenya Banking Sector Health Assessment 2024
-**Author:** Lucy Wangui | BSc Statistics, Maseno University  
-**Data:** Central Bank of Kenya Banking Supervision Report 2024  
-**Tools:** PostgreSQL, DBeaver  
+# Kenya Banking Sector Health Assessment — 2020 to 2024
+
+A portfolio SQL project analyzing the health, structure, and risk profile of Kenya's banking sector using data extracted from the **Central Bank of Kenya (CBK) Bank Supervision Annual Reports (2020–2024)**.
+
+**Author:** Lucy Wangui  
+**Tools:** SQLite · DB Browser for SQLite  
+**GitHub:** [WanguiLucy](https://github.com/WanguiLucy)
 
 ---
 
 ## Project Overview
 
-A full SQL-based health assessment of Kenya's banking sector covering 39 banks across 6 analytical dimensions: market concentration, profitability, credit quality, bank tiering, capital adequacy, and loan dynamics. Data is sourced directly from the CBK Banking Supervision Report 2024.
+This project uses four structured datasets derived from CBK supervisory data to answer 20 business-driven questions spanning market structure, profitability, credit risk, capital adequacy, and sector-wide stress. The analysis covers all CBK-licensed commercial banks across five reporting years.
 
 ---
 
 ## Datasets
 
-| Table | Description | Rows |
+| Table | Source | Description |
 |---|---|---|
-| `cbk_market_share` | Assets, deposits, peer group, market rank | 17 banks |
-| `cbk_profitability` | ROE, ROA, profit before tax, shareholders funds | 39 banks |
-| `cbk_npl_loans` | Gross loans, NPL ratios for Dec 2023 and Dec 2024 | 38 banks |
-| `cbk_capital_adequacy` | Core capital, total capital, RWA, CBK ratio thresholds | 29 banks |
+| `cbk_market_share` | CBK Bank Supervision Report | Total assets, deposits, deposit accounts, asset market share %, peer group classification |
+| `cbk_profitability` | CBK Bank Supervision Report | Profit before tax, Return on Equity (ROE), Return on Assets (ROA) |
+| `cbk_npl_loans` | CBK Bank Supervision Report | Gross loans, NPL ratio %, loan growth % |
+| `cbk_capital_adequacy` | CBK Bank Supervision Report | Core capital to RWA %, total capital to RWA %, core capital to deposits %, core capital (KSh M) |
+
+All monetary values are in **KSh Millions** unless otherwise stated.
+
+---
+
+## Business Questions Answered
+
+### Market Structure
+| # | Question |
+|---|---|
+| Q01 | Top 5 banks by total assets (2024) |
+| Q06 | HHI market concentration index by year |
+| Q17 | Concentration risk: top 5 banks' asset share over time |
+
+### Profitability
+| # | Question |
+|---|---|
+| Q03 | All loss-making bank–year combinations |
+| Q07 | Profitability tier classification by year (ROE-based) |
+| Q11 | Sector-wide ROE trend at peer group level |
+| Q12 | YoY ROA change — top improvers and deteriorators |
+
+### Credit Risk & Lending
+| # | Question |
+|---|---|
+| Q02 | Average NPL ratio by peer group (2023) |
+| Q04 | Year-by-year sector gross loan growth |
+| Q09 | NPL ratio vs loan growth risk quadrant (2023) |
+| Q13 | Rolling 3-year average NPL ratio per bank |
+| Q15 | Loan-to-deposit ratio analysis by bank and year |
+| Q16 | NPL coverage ratio estimation |
+
+### Capital Adequacy & Compliance
+| # | Question |
+|---|---|
+| Q05 | Banks below regulatory capital minimums |
+| Q10 | Capital adequacy compliance scorecard (all years) |
+
+### Growth & Structural Change
+| # | Question |
+|---|---|
+| Q08 | Deposit account growth rate (CAGR) by peer group, 2020–2024 |
+| Q14 | Bank asset rank shift: 2020 to 2024 |
+
+### Composite & Advanced Metrics
+| # | Question |
+|---|---|
+| Q18 | Composite bank health score — all four datasets (2023) |
+| Q19 | Identifying and tracking systemically important banks (SIBs) |
+| Q20 | Full sector stress index — 2020 to 2024 |
+
+---
+
+## SQL Techniques Used
+
+- Window functions: `LAG()`, `RANK()`, `AVG() OVER()` with frame clauses (`ROWS BETWEEN`)
+- Common Table Expressions (CTEs) and multi-CTE chaining
+- Conditional aggregation with `CASE WHEN`
+- `POWER()` for CAGR and HHI calculations
+- Min-max normalisation for composite scoring
+- SQLite median approximation using `LIMIT`/`OFFSET`
+- Multi-table `JOIN` across all four datasets
+- `NULLIF()` for safe division
+
+---
+
+## Regulatory Thresholds Applied
+
+| Metric | CBK Minimum |
+|---|---|
+| Core Capital to RWA | ≥ 10.5% |
+| Total Capital to RWA | ≥ 14.5% |
+| Core Capital to Deposits | ≥ 8.0% |
+| NPL Ratio (sector benchmark) | ≤ 15% |
 
 ---
 
 ## Key Findings
 
-**Market Concentration**
-- HHI of 807 classifies the sector as Competitive, but top 5 banks control 59.28% of sector assets and deposits — a gap that warrants dual-metric monitoring by CBK
-- Only 10 out of 17 banks are needed to account for 80% of sector assets
-
-**Profitability**
-- 10 out of 39 banks (25%) are loss-making in 2024, but their combined losses represent only -4% of total sector profit — large banks absorb the impact
-- Medium banks show negative average ROE (-0.86%), heavily skewed by Ecobank (-90.9%) and Access Bank (-159%)
-- Bank size does not predict profitability — Citibank outperforms much larger peers on ROE
-
-**Credit Quality (NPL)**
-- 37 out of 38 banks exceed CBK's 5% NPL benchmark
-- Sector weighted average NPL rose from 15.52% (2023) to 17.11% (2024) — a 1.59 point deterioration in one year
-- 22 banks worsened, 15 improved; Guaranty Trust Bank deteriorated fastest (+23 points)
-- 14 banks show NPL Growth Only — shrinking loan books with rising bad loans, the most structurally concerning signal
-
-**Bank Tiering (Multi-metric Classification)**
-- Tier 2 Stable: 5 banks — Citibank, Prime, Family, Bank of India, Co-operative Bank
-- Tier 3 Watch: 1 bank — National Bank of Kenya
-- Tier 4 Distressed: 2 banks — Ecobank, SBM Bank
-- 9 banks returned no data due to name formatting inconsistencies across tables (see Data Limitations)
-
-**Capital Adequacy**
-- KCB holds the strongest core capital base at KSh 144,770M
-- Family Bank (-78.7%) and Gulf African Bank (-1.4%) flagged for negative core-capital-to-deposits ratio — a serious depositor protection risk
-- Bank of India holds the largest capital buffer above CBK minimum (+70.8 points)
-
-**Loan Dynamics**
-- 12 banks flagged as Double Risk: growing loan books AND growing NPLs simultaneously
-- DIB Bank Kenya most extreme — NPL surged 150% on just 5% loan growth
-- UBA Kenya best performer — loans -56%, NPLs -86% (active portfolio cleanup)
-
-**Loan Growth Trend Analysis (YoY)**
-- 18 banks grew their loan books YoY; of these, several flagged as Risky Growth where NPL grew faster than loans
-- DIB Bank Kenya most extreme — NPL surged 150% on just 5% loan growth
-- Banks flagged as Distressed Contraction (loans shrank AND NPL grew) warrant immediate supervisory attention
-- Classification: Healthy Growth | Risky Growth | Healthy Deleveraging | Distressed Contraction | Watch
-- Note: Healthy Deleveraging vs forced contraction cannot be distinguished from data alone — requires qualitative investigation
+- **Market structure:** The sector maintained a competitive HHI of approximately 807 across the period, well below the 1,500 concentration threshold
+- **NPL stress:** A significant proportion of banks breached the 15% NPL benchmark, particularly in 2020–2022
+- **Capital compliance:** Most banks passed core capital requirements; compliance with the deposits ratio was the most variable
+- **Deposit growth:** Large-tier banks recorded the strongest CAGR in deposit accounts between 2020 and 2024
+- **SIBs:** A consistent group of 3 banks retained the qualification of systemically important based on market share and capital strength
 
 ---
 
-## Data Limitations
+## How to Run
 
-- **Name inconsistencies across tables** — 5 banks have formatting mismatches between `cbk_market_share` and other tables (e.g. `KCB Bank Kenya Limited` vs `KCB Bank Kenya Ltd`). This causes NULL results in cross-table joins, particularly in Section 4 tiering. Identified and documented in Section 8.
-- **Coverage gaps** — `cbk_capital_adequacy` covers 29 banks; not all 39 banks in profitability have capital data
-- All findings are directionally correct; exact figures on joined queries may shift with standardised bank names
+1. Open **DB Browser for SQLite**
+2. Import the four cleaned Excel/CSV files as tables using the names listed in the Datasets section above
+3. Open `cbk_sector_health_assessment_2024.sql`
+4. Run queries individually (Q01 through Q20) using the Execute SQL tab
+
+> Each query is self-contained and labelled. Multi-CTE queries (Q08, Q18, Q19, Q20) should be run as a single block.
 
 ---
 
-## SQL Structure
+## Data Notes
 
-| Section | Focus |
-|---|---|
-| Section 1 | Market share and concentration analysis |
-| Section 2 | Profitability ranking and peer group comparison |
-| Section 3 | NPL benchmarking, deterioration ranking, weighted averages |
-| Section 4 | Multi-metric bank tiering framework |
-| Section 5 | Capital adequacy and CBK regulatory threshold analysis |
-| Section 6 | Loan book dynamics and double risk flagging |
-| Section 7 | YoY loan growth trend analysis and lending quality classification |
-| Section 8 | Data quality — name mismatch diagnosis |
+- Bank names were standardised across source files to ensure consistent JOIN results; minor name inconsistencies in original CBK reports required manual reconciliation
+- All data is sourced from publicly available CBK Bank Supervision Annual Reports
+- This project is for portfolio and educational purposes only
+
+---
+
+## Repository Structure
+
+```
+project-banking/
+│
+├── cbk_sector_health_assessment_2024.sql   ← Main analysis script (20 queries)
+├── README.md                ← This file
+```
